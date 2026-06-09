@@ -17,13 +17,13 @@ from datetime import datetime
 
 # ─── Config from environment ──────────────────────────────────────────────────
 
-NR_API_KEY = os.environ.get("NR_API_KEY", "")
-NR_ACCOUNT_ID = int(os.environ.get("NR_ACCOUNT_ID", "0"))
-NR_ENTITY_GUID = os.environ.get("NR_ENTITY_GUID", "")
-NR_REGION = os.environ.get("NR_REGION", "US")
-GHE_TOKEN = os.environ.get("GHE_TOKEN", "")
-RISK_THRESHOLD = int(os.environ.get("RISK_THRESHOLD", "80"))
-WARN_THRESHOLD = int(os.environ.get("WARN_THRESHOLD", "50"))
+NR_API_KEY = os.environ.get("NR_API_KEY") or ""
+NR_ACCOUNT_ID = int(os.environ.get("NR_ACCOUNT_ID") or "0")
+NR_ENTITY_GUID = os.environ.get("NR_ENTITY_GUID") or ""
+NR_REGION = os.environ.get("NR_REGION") or "US"
+GHE_TOKEN = os.environ.get("GHE_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+RISK_THRESHOLD = int(os.environ.get("RISK_THRESHOLD") or "80")
+WARN_THRESHOLD = int(os.environ.get("WARN_THRESHOLD") or "50")
 
 GITHUB_SHA = os.environ.get("GITHUB_SHA", "")
 GITHUB_REPO = os.environ.get("GITHUB_REPO", "")  # org/repo
