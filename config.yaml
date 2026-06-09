@@ -1,0 +1,16 @@
+payment:
+  provider: stripe
+  timeout_sec: 30
+  max_retries: 3
+  currency: usd
+
+fulfillment:
+  url: http://fulfillment-service/api/orders
+  timeout_sec: 5
+
+loyalty:
+  tiers:
+    bronze: {min_orders: 0, discount: 0}
+    silver: {min_orders: 5, discount: 0.05}
+    gold: {min_orders: 20, discount: 0.10}
+    platinum: {min_orders: 50, discount: 0.15}
