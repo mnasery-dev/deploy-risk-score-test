@@ -130,21 +130,21 @@ def get_nr_deploy_history() -> dict:
     }}"""
 
     data = nerdgraph_query(query)
-    account = data.get("data", {}).get("actor", {}).get("account", {})
+    account = data.get("data", {}).get("actor", {}).get("account") or {}
 
     total = 0
     failures = 0
     recent_failures = 0
 
-    total_results = account.get("total", {}).get("results", [])
+    total_results = (account.get("total") or {}).get("results") or []
     if total_results:
         total = total_results[0].get("count", 0)
 
-    fail_results = account.get("failures", {}).get("results", [])
+    fail_results = (account.get("failures") or {}).get("results") or []
     if fail_results:
         failures = fail_results[0].get("count", 0)
 
-    recent_results = account.get("recent_failures", {}).get("results", [])
+    recent_results = (account.get("recent_failures") or {}).get("results") or []
     if recent_results:
         recent_failures = recent_results[0].get("count", 0)
 
@@ -172,8 +172,8 @@ def get_nr_incidents() -> dict:
     }}"""
 
     data = nerdgraph_query(query)
-    results = (data.get("data", {}).get("actor", {}).get("account", {})
-               .get("nrql", {}).get("results", []))
+    account = data.get("data", {}).get("actor", {}).get("account") or {}
+    results = (account.get("nrql") or {}).get("results") or []
 
     incidents = {"critical": 0, "warning": 0}
     for r in results:
