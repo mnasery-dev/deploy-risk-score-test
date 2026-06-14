@@ -1,81 +1,101 @@
-name: Deploy Risk Score
+# .github/workflows/deploy-risk-analysis.yml
+#
+# Runs the DeploySense risk pipeline when a PR is created.
+# Posts the analysis as a PR comment.
+
+name: DeploySense Risk Analysis
 
 on:
   pull_request:
-    branches: [main]
-  push:
-    branches: [main]
+    types: [opened, synchronize]
 
 permissions:
   contents: read
   pull-requests: write
-  statuses: write
 
 jobs:
-  risk-score:
+  risk-analysis:
     runs-on: ubuntu-latest
-    name: Calculate Deployment Risk
+    name: Analyze Deployment Risk
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Deploy Risk Score
-        id: risk
+      - name: Install dependencies
+        run: pip install httpx
+
+      - name: Run DeploySense Pipeline
+        id: analysis
         env:
           NR_API_KEY: ${{ secrets.NR_API_KEY }}
-          NR_ACCOUNT_ID: ${{ secrets.NR_ACCOUNT_ID }}
-          NR_ENTITY_GUID: ${{ secrets.NR_ENTITY_GUID }}
-          NR_REGION: 'US'
-          GHE_TOKEN: ${{ github.token }}
-          RISK_THRESHOLD: '80'
-          WARN_THRESHOLD: '50'
-          GITHUB_SHA: ${{ github.sha }}
-          GITHUB_REPO: ${{ github.repository }}
-          GITHUB_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
-          GITHUB_HEAD_REF: ${{ github.sha }}
-        run: python .github/scripts/score.py
-
-      - name: Post commit status
-        if: always()
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GHE_TOKEN: ${{ secrets.GHE_TOKEN }}
+          NERD_COMPLETION_TOKEN: ${{ secrets.NERD_COMPLETION_TOKEN }}
         run: |
-          SCORE="${{ steps.risk.outputs.risk-score }}"
-          LEVEL="${{ steps.risk.outputs.risk-level }}"
+          # Run the pipeline — analysis goes to stdout, logs to stderr
+          python scripts/risk_pipeline.py \
+            --entity-guid "${{ vars.ENTITY_GUID }}" \
+            --account-id "${{ vars.ACCOUNT_ID }}" \
+            --timestamp-ms "$(python -c 'import time; print(int(time.time()*1000))')" \
+            --nr-api-key "$NR_API_KEY" \
+            --ghe-token "$GHE_TOKEN" \
+            --llm-token "$NERD_COMPLETION_TOKEN" \
+            --target-index 0 \
+            > /tmp/risk_analysis.md 2> /tmp/pipeline.log
 
-          STATE="success"
-          if [ "$LEVEL" = "CRITICAL" ] || [ "$LEVEL" = "HIGH" ]; then
-            STATE="failure"
+          echo "Pipeline logs:"
+          cat /tmp/pipeline.log
+
+          # Truncate if too long for GH comment (max 65536 chars)
+          if [ $(wc -c < /tmp/risk_analysis.md) -gt 60000 ]; then
+            head -c 60000 /tmp/risk_analysis.md > /tmp/risk_comment.md
+            echo -e "\n\n---\n*[Analysis truncated — full report available in workflow artifacts]*" >> /tmp/risk_comment.md
+          else
+            cp /tmp/risk_analysis.md /tmp/risk_comment.md
           fi
 
-          curl -s -X POST \
-            -H "Authorization: token $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
-            -d "{
-              \"state\": \"$STATE\",
-              \"description\": \"Risk Score: ${SCORE}/100 (${LEVEL})\",
-              \"context\": \"deploy-intelligence/risk-score\"
-            }"
-
-      - name: Comment on PR
-        if: github.event_name == 'pull_request'
+      - name: Post PR Comment
+        env:
+          REPO_NAME: ${{ github.repository }}
         uses: actions/github-script@v7
         with:
           script: |
-            const score = '${{ steps.risk.outputs.risk-score }}';
-            const level = '${{ steps.risk.outputs.risk-level }}';
-            const rec = '${{ steps.risk.outputs.recommendation }}';
-            const emoji = {LOW: '✅', MEDIUM: '⚠️', HIGH: '🔶', CRITICAL: '🚨'}[level] || '❓';
+            const fs = require('fs');
+            const analysis = fs.readFileSync('/tmp/risk_comment.md', 'utf8');
+            const repoName = process.env.REPO_NAME;
 
-            await github.rest.issues.createComment({
+            const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `## ${emoji} Deploy Risk Score: ${score}/100 (${level})\n\n${rec}\n\n---\n*Powered by Deploy Intelligence*`
             });
+            const existing = comments.find(c => c.body.includes('<!-- deploysense-risk-analysis -->'));
+
+            const body = '<!-- deploysense-risk-analysis -->\n## 🔍 DeploySense Risk Analysis\n\n' + analysis + '\n\n---\n*Powered by DeploySense — AI-powered deployment risk prediction*';
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body,
+              });
+            }
+
+      - name: Upload Full Analysis as Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: risk-analysis
+          path: |
+            /tmp/risk_analysis.md
+            /tmp/pipeline.log
